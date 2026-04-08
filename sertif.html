@@ -1,0 +1,320 @@
+```html
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sertifikat Otomatis - Multi Layer System</title>
+    <!-- KOTAK PERKAKAS (Library wajib sesuai screenshot) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .canvas-bg { background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 20px 20px; }
+        .layer-panel::-webkit-scrollbar { width: 6px; }
+        .layer-panel::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 font-sans p-2 md:p-6">
+
+    <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- PANEL KIRI: LOGIC & CONTROL -->
+        <div class="lg:col-span-5 flex flex-col gap-4 h-[90vh]">
+            
+            <!-- Step 1: Input Dasar -->
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 shrink-0">
+                <h2 class="text-sm font-black uppercase tracking-widest text-slate-500 mb-3">1. Inisialisasi Data</h2>
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-xs font-bold text-slate-700">Template Background (Base)</label>
+                        <input type="file" id="templateInput" accept="image/*" class="w-full text-xs border p-1.5 rounded bg-slate-50">
+                    </div>
+                    <div>
+                        <label class="text-xs font-bold text-slate-700">Data CSV (Raw)</label>
+                        <input type="file" id="csvInput" accept=".csv" class="w-full text-xs border p-1.5 rounded bg-slate-50">
+                        <p id="csvMeta" class="text-[10px] text-blue-600 font-bold mt-1 hidden">Menunggu data...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Layer Manager -->
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden">
+                <div class="flex justify-between items-center mb-3 shrink-0">
+                    <h2 class="text-sm font-black uppercase tracking-widest text-slate-500">2. Layer Manager</h2>
+                    <div class="flex gap-2">
+                        <button onclick="addTextLayer()" class="text-xs bg-blue-100 text-blue-700 font-bold px-2 py-1 rounded hover:bg-blue-200">+ Teks (CSV)</button>
+                        <button onclick="addImageLayer()" class="text-xs bg-green-100 text-green-700 font-bold px-2 py-1 rounded hover:bg-green-200">+ Gambar</button>
+                    </div>
+                </div>
+                
+                <div id="layerContainer" class="flex-1 overflow-y-auto layer-panel space-y-3 pr-2 pb-4">
+                    <div class="text-center text-xs text-slate-400 italic mt-10">Upload CSV terlebih dahulu untuk menambah layer teks.</div>
+                </div>
+            </div>
+
+            <!-- Step 3: Action Panel -->
+            <div class="bg-slate-900 p-5 rounded-xl shadow-lg shrink-0">
+                <div class="flex justify-between items-center mb-3">
+                    <span class="text-white text-xs font-bold uppercase tracking-widest">3. Eksekusi</span>
+                    <span id="progressText" class="text-green-400 text-xs font-bold hidden">0%</span>
+                </div>
+                
+                <div id="progressBar" class="w-full bg-slate-700 h-1.5 rounded-full mb-4 hidden overflow-hidden">
+                    <div id="progressFill" class="bg-green-400 h-full w-0 transition-all duration-100"></div>
+                </div>
+
+                <div class="flex gap-3">
+                    <button onclick="renderPreview(0)" class="w-1/3 bg-slate-700 text-white text-xs font-bold py-3 rounded-lg hover:bg-slate-600 transition">
+                        PREVIEW
+                    </button>
+                    <!-- TOMBOL PEMICU MESIN ZIP -->
+                    <button id="btnDownload" onclick="startBulkProcess()" class="w-2/3 bg-blue-600 text-white text-sm font-black py-3 rounded-lg hover:bg-blue-500 transition opacity-50 cursor-not-allowed" disabled>
+                        DOWNLOAD ZIP
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- PANEL KANAN: CANVAS PREVIEW -->
+        <div class="lg:col-span-7 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[90vh]">
+            <div class="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-xl shrink-0">
+                <span class="text-xs font-black uppercase tracking-widest text-slate-400">Live Render Output</span>
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] text-slate-400 font-bold">Baris CSV:</span>
+                    <input type="number" id="previewRowIdx" value="1" min="1" onchange="renderPreview(this.value - 1)" class="w-16 text-xs border rounded p-1 text-center bg-white" disabled>
+                </div>
+            </div>
+            
+            <div class="flex-1 canvas-bg flex items-center justify-center p-4 overflow-auto relative">
+                <canvas id="mainCanvas" class="max-w-full shadow-md hidden"></canvas>
+                <div id="placeholder" class="text-slate-300 text-center">
+                    <svg class="w-16 h-16 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    <p class="text-xs font-bold uppercase tracking-widest">Ruang Render Kosong</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Core State Management ---
+        const state = { templateObj: null, csvHeaders: [], csvData: [], layers: [] };
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        const layerContainer = document.getElementById('layerContainer');
+        const btnDownload = document.getElementById('btnDownload');
+
+        // --- 1. Event Listeners ---
+        document.getElementById('templateInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    state.templateObj = img;
+                    document.getElementById('placeholder').classList.add('hidden');
+                    canvas.classList.remove('hidden');
+                    renderPreview(0);
+                    checkReadyState();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        document.getElementById('csvInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const text = event.target.result;
+                const rows = text.split(/\r?\n/).filter(r => r.trim() !== "");
+                if(rows.length < 2) return alert("Format CSV tidak valid / kosong.");
+
+                state.csvHeaders = rows[0].split(',').map(h => h.replace(/"/g, '').trim());
+                state.csvData = rows.slice(1).map(row => {
+                    return row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/"/g, '').trim());
+                });
+
+                document.getElementById('csvMeta').textContent = `${state.csvHeaders.length} Kolom | ${state.csvData.length} Baris terdeteksi.`;
+                document.getElementById('csvMeta').classList.remove('hidden');
+                document.getElementById('previewRowIdx').max = state.csvData.length;
+                document.getElementById('previewRowIdx').disabled = false;
+                
+                layerContainer.innerHTML = ''; 
+                addTextLayer(); 
+                checkReadyState();
+            };
+            reader.readAsText(file);
+        });
+
+        function checkReadyState() {
+            if(state.templateObj && state.csvData.length > 0) {
+                btnDownload.disabled = false;
+                btnDownload.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        // --- 2. Layer Logic ---
+        function generateId() { return Math.random().toString(36).substr(2, 9); }
+
+        function addTextLayer() {
+            if(state.csvHeaders.length === 0) return alert("Upload CSV dulu agar bisa mapping teks.");
+            const id = generateId();
+            state.layers.push({ id: id, type: 'text', colIdx: 0, x: 50, y: 50, size: 60, color: '#000000', align: 'center' });
+
+            let optionsHTML = state.csvHeaders.map((h, i) => `<option value="${i}">${h}</option>`).join('');
+            const layerHTML = `
+                <div id="layer-${id}" class="bg-blue-50 border border-blue-200 p-3 rounded-lg relative">
+                    <button onclick="removeLayer('${id}')" class="absolute top-2 right-2 text-red-500 font-bold text-xs">X</button>
+                    <div class="text-[10px] font-bold text-blue-800 uppercase mb-2">Teks (CSV Mapping)</div>
+                    <select onchange="updateLayer('${id}', 'colIdx', this.value)" class="text-xs p-1.5 border rounded w-full mb-2">${optionsHTML}</select>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div><label class="block text-[10px] mb-1">X (%)</label><input type="range" min="0" max="100" value="50" oninput="updateLayer('${id}', 'x', this.value)" class="w-full"></div>
+                        <div><label class="block text-[10px] mb-1">Y (%)</label><input type="range" min="0" max="100" value="50" oninput="updateLayer('${id}', 'y', this.value)" class="w-full"></div>
+                        <div><label class="block text-[10px] mb-1">Size</label><input type="number" value="60" oninput="updateLayer('${id}', 'size', this.value)" class="w-full border rounded p-1"></div>
+                        <div><label class="block text-[10px] mb-1">Color</label><input type="color" value="#000000" oninput="updateLayer('${id}', 'color', this.value)" class="w-full h-6 border p-0 rounded"></div>
+                    </div>
+                </div>`;
+            layerContainer.insertAdjacentHTML('beforeend', layerHTML);
+            renderPreview();
+        }
+
+        function addImageLayer() {
+            const id = generateId();
+            state.layers.push({ id: id, type: 'image', imgObj: null, x: 50, y: 50, scale: 20 });
+            const layerHTML = `
+                <div id="layer-${id}" class="bg-green-50 border border-green-200 p-3 rounded-lg relative">
+                    <button onclick="removeLayer('${id}')" class="absolute top-2 right-2 text-red-500 font-bold text-xs">X</button>
+                    <div class="text-[10px] font-bold text-green-800 uppercase mb-2">Gambar Overlay</div>
+                    <input type="file" accept="image/*" onchange="handleOverlayUpload(event, '${id}')" class="w-full text-[10px] mb-2 bg-white border p-1 rounded">
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div><label class="block text-[10px] mb-1">X (%)</label><input type="range" min="0" max="100" value="50" oninput="updateLayer('${id}', 'x', this.value)" class="w-full"></div>
+                        <div><label class="block text-[10px] mb-1">Y (%)</label><input type="range" min="0" max="100" value="50" oninput="updateLayer('${id}', 'y', this.value)" class="w-full"></div>
+                        <div class="col-span-2"><label class="block text-[10px] mb-1">Skala (%)</label><input type="range" min="1" max="100" value="20" oninput="updateLayer('${id}', 'scale', this.value)" class="w-full"></div>
+                    </div>
+                </div>`;
+            layerContainer.insertAdjacentHTML('beforeend', layerHTML);
+        }
+
+        function handleOverlayUpload(e, layerId) {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => { state.layers.find(l => l.id === layerId).imgObj = img; renderPreview(); };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function updateLayer(id, key, value) {
+            const layer = state.layers.find(l => l.id === id);
+            if(layer) { layer[key] = ['x', 'y', 'size', 'scale', 'colIdx'].includes(key) ? Number(value) : value; renderPreview(); }
+        }
+
+        function removeLayer(id) {
+            state.layers = state.layers.filter(l => l.id !== id);
+            document.getElementById(`layer-${id}`).remove();
+            renderPreview();
+        }
+
+        // --- 3. Rendering Engine ---
+        function renderPreview(forceRowIdx = null) {
+            if (!state.templateObj) return;
+            let inputIdx = parseInt(document.getElementById('previewRowIdx').value) - 1;
+            let dataRowIdx = forceRowIdx !== null ? forceRowIdx : (isNaN(inputIdx) ? 0 : inputIdx);
+            if(dataRowIdx < 0) dataRowIdx = 0;
+            if(dataRowIdx >= state.csvData.length) dataRowIdx = state.csvData.length - 1;
+
+            canvas.width = state.templateObj.width;
+            canvas.height = state.templateObj.height;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(state.templateObj, 0, 0);
+
+            state.layers.forEach(layer => {
+                const xPos = (canvas.width * layer.x) / 100;
+                const yPos = (canvas.height * layer.y) / 100;
+
+                if (layer.type === 'text') {
+                    let textToDraw = state.csvData.length > 0 && state.csvData[dataRowIdx] ? (state.csvData[dataRowIdx][layer.colIdx] || "") : "TEKS PREVIEW";
+                    ctx.font = `bold ${layer.size}px Arial`;
+                    ctx.fillStyle = layer.color;
+                    ctx.textAlign = layer.align;
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(textToDraw, xPos, yPos);
+                } 
+                else if (layer.type === 'image' && layer.imgObj) {
+                    const imgRatio = layer.imgObj.height / layer.imgObj.width;
+                    const drawWidth = (canvas.width * layer.scale) / 100;
+                    const drawHeight = drawWidth * imgRatio;
+                    ctx.drawImage(layer.imgObj, xPos - (drawWidth/2), yPos - (drawHeight/2), drawWidth, drawHeight);
+                }
+            });
+        }
+
+        // --- 4. MESIN ZIP (Ini sama persis dengan Screenshot Anda, dimodifikasi untuk menampung CSV & UI) ---
+        async function startBulkProcess() {
+            if(!state.templateObj || state.csvData.length === 0) return;
+
+            btnDownload.disabled = true;
+            btnDownload.classList.add('opacity-50');
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            document.getElementById('progressBar').classList.remove('hidden');
+            progressText.classList.remove('hidden');
+
+            const zip = new JSZip(); // INISIALISASI ZIP
+            const total = state.csvData.length;
+
+            try {
+                // LOOPING BARIS CSV (Mirip looping dataNama di screenshot)
+                for (let i = 0; i < total; i++) {
+                    // 1. Gambar ulang ke canvas
+                    renderPreview(i);
+
+                    // 2. Convert Canvas ke Blob
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.9));
+                    
+                    // 3. Masukkan ke ZIP (Identifier pakai kolom pertama di CSV)
+                    let identifier = state.csvData[i][0] ? state.csvData[i][0].replace(/[^a-z0-9]/gi, '_') : 'Doc';
+                    zip.file(`Sertifikat_${i+1}_${identifier}.png`, blob);
+
+                    // UPDATE UI PROGRESS BAR
+                    if (i % 10 === 0 || i === total - 1) {
+                        const pct = Math.round(((i + 1) / total) * 100);
+                        progressFill.style.width = `${pct}%`;
+                        progressText.textContent = `${pct}%`;
+                        await new Promise(r => setTimeout(r, 5)); // Hindari HP Hang
+                    }
+                }
+
+                progressText.textContent = "ZIP... Mohon Tunggu";
+                
+                // 4. Generate & Trigger Download
+                const zipContent = await zip.generateAsync({ type: "blob" });
+                saveAs(zipContent, `Sertifikat_Batch_${Date.now()}.zip`);
+
+                progressText.textContent = "Selesai!";
+            } catch (err) {
+                console.error(err);
+                alert("Terjadi kesalahan memori.");
+            } finally {
+                btnDownload.disabled = false;
+                btnDownload.classList.remove('opacity-50');
+                setTimeout(() => {
+                    document.getElementById('progressBar').classList.add('hidden');
+                    progressText.classList.add('hidden');
+                    progressFill.style.width = '0%';
+                }, 3000);
+            }
+        }
+    </script>
+</body>
+</html>
+
+
+```
